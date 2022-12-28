@@ -544,6 +544,7 @@ static void slirp_init_once(void)
     loopback_addr.s_addr = htonl(INADDR_LOOPBACK);
     loopback_mask = htonl(IN_CLASSA_NET);
 
+#ifndef NO_GLIB
     debug = g_getenv("SLIRP_DEBUG");
     if (debug) {
         const GDebugKey keys[] = {
@@ -555,6 +556,7 @@ static void slirp_init_once(void)
         };
         slirp_debug = g_parse_debug_string(debug, keys, G_N_ELEMENTS(keys));
     }
+#endif
 }
 
 static void ra_timer_handler_cb(void *opaque)

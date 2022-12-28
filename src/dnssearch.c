@@ -235,11 +235,12 @@ static size_t domain_compactify(CompactDomain *domains, size_t n)
 int translate_dnssearch(Slirp *s, const char **names)
 {
     size_t blocks, bsrc_start, bsrc_end, bdst_start;
-    size_t i, num_domains, memreq = 0;
+    size_t i, num_domains = 0, memreq = 0;
     uint8_t *result = NULL, *outptr;
     CompactDomain *domains = NULL;
 
-    num_domains = g_strv_length((GStrv)(void *)names);
+    if (names) while (names[num_domains]) num_domains++;
+
     if (num_domains == 0) {
         return -2;
     }

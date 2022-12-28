@@ -7,6 +7,7 @@
 #ifdef G_OS_UNIX
 #include <sys/un.h>
 #endif
+#include <signal.h>
 
 void slirp_insque(void *a, void *b)
 {
@@ -152,6 +153,8 @@ static void fork_exec_child_setup(gpointer data)
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
 
+#ifndef NO_GLIB
+
 #if !GLIB_CHECK_VERSION(2, 58, 0)
 typedef struct SlirpGSpawnFds {
     GSpawnChildSetupFunc child_setup;
@@ -200,15 +203,14 @@ g_spawn_async_with_fds_slirp(const gchar *working_directory, gchar **argv,
 #define g_spawn_async_with_fds(wd, argv, env, f, c, d, p, ifd, ofd, efd, err) \
     g_spawn_async_with_fds_slirp(wd, argv, env, f, c, d, p, ifd, ofd, efd, err)
 
+#endif
+
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
 
 int fork_exec(struct socket *so, const char *ex)
 {
-    GError *err = NULL;
-    gint argc = 0;
-    gchar **argv = NULL;
     int opt, sp[2];
 
     DEBUG_CALL("fork_exec");
@@ -218,6 +220,79 @@ int fork_exec(struct socket *so, const char *ex)
     if (slirp_socketpair_with_oob(sp) < 0) {
         return 0;
     }
+
+#if NO_GLIB
+    /* split ex into argv usable by exec */
+#define MAX_ARGS 127
+    char *argv[MAX_ARGS + 1];
+    char *exc = strdup(ex), *c = exc, *d = c;
+    int  argc = 0;
+    while (*c) {
+	argv[argc++] = d;
+	if (argc >= MAX_ARGS) {
+	    fprintf(stderr, "ERROR: too many arguments to subprocess.\n");
+	    return 0;
+	}
+	while (*c && *c != ' ') {
+	    if (*c == '"') {
+		c++;
+		while (*c && *c != '"') {
+		    /* we don't bother with escape sequences except for \\ and \" */
+		    if (*c == '\\' && c[1])
+			c++;
+		    *(d++) = *(c++);
+		}
+		if (*c) /* final quote */
+		    c++;
+		else
+		    fprintf(stderr, "WARNING: unterminated \" quoted string in: %s\n", ex);
+	    } else if (*c == '\'') {
+		c++;
+		while (*c && *c != '\'')
+		    *(d++) = *(c++);
+		if (*c) /* final quote */
+		    c++;
+		else
+		    fprintf(stderr, "WARNING: unterminated ' quoted string in: %s\n", ex);
+	    } else *(d++) = *(c++);
+	}
+	*(d++) = 0;
+	/* skip all spaces between args */
+	while (*c == ' ') c++;
+    }
+    argv[argc] = 0;
+
+    if (!argc) {
+	fprintf(stderr, "Error: command to execute is empty\n");
+	return 0;
+    }
+
+    pid_t fp = fork();
+    if (fp == -1) {
+	perror("Cannot fork");
+	return 0;
+    }
+
+    if (fp) { /* child */
+	fork_exec_child_setup(0);
+	/* in theory we may want to guard against EINTR or EBUSY, but hey .. */
+	if (dup2(sp[1], 0) == -1 ||
+	    dup2(sp[1], 1) == -1 ||
+	    dup2(sp[1], 2) == -1) {
+	    perror("Failed to setup file descriptors in subprocess");
+	    exit(1);
+	}
+	execvp(argv[0], argv);
+	fprintf(stderr, "Failed to execute %s\n", ex);
+	perror("Error");
+	exit(1);
+    }
+    /* by definition parent continues here */
+
+#else /* glibc version */
+    GError *err = NULL;
+    gint argc = 0;
+    gchar **argv = NULL;
 
     if (!g_shell_parse_argv(ex, &argc, &argv, &err)) {
         g_critical("fork_exec invalid command: %s\nerror: %s", ex, err->message);
@@ -238,6 +313,7 @@ int fork_exec(struct socket *so, const char *ex)
         closesocket(sp[1]);
         return 0;
     }
+#endif
 
     so->s = sp[0];
     closesocket(sp[1]);
