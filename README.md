@@ -3,6 +3,12 @@
 libslirp is a user-mode networking library used by virtual machines,
 containers or various tools.
 
+---
+
+__NOTE:__ This is a fork of [libslirp](https://gitlab.freedesktop.org/slirp) with minimal modifications to make it build with standard tools on macOS without the need for glib. There are no (non-system) dependencies, simply run `make` in the `src` directory. Standard variables `CC`, `CFLAGS` and `CPPFLAGS` are honored. It is safe to compile universally, e.g., `CFLAGS='-arch x86_64 -arch arm64'` works. When linking applications against this library, use `libslirp.a -lresolv`.
+
+---
+
 ## Getting Started
 
 ### Prerequisites
